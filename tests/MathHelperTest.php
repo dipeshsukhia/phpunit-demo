@@ -1,11 +1,10 @@
 <?php
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Demo\App\MathHelper;
 
-/**
- * @covers Demo\App\MathHelper
- */
+#[CoversClass(MathHelper::class)]
 class MathHelperTest extends TestCase
 {
     public function testMultiply()

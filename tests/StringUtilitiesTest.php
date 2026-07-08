@@ -1,11 +1,10 @@
 <?php
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Demo\App\StringUtilities;
 
-/**
- * @covers Demo\App\StringUtilities
- */
+#[CoversClass(StringUtilities::class)]
 class StringUtilitiesTest extends TestCase
 {
     public function testReverseString()

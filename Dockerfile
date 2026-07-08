@@ -1,11 +1,14 @@
-FROM php:8.1-cli
+FROM php:8.3-cli-bookworm
 
 # Install necessary extensions and tools
 RUN apt-get update && apt-get install -y \
     zip unzip git \
-    && docker-php-ext-install pdo pdo_mysql
-
-RUN pecl install pcov && docker-php-ext-enable pcov
+    $PHPIZE_DEPS \
+    && docker-php-ext-install pdo pdo_mysql \
+    && pecl install pcov \
+    && docker-php-ext-enable pcov \
+    && apt-get purge -y --auto-remove $PHPIZE_DEPS \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer

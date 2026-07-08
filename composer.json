@@ -1,0 +1,20 @@
+{
+    "name": "entrata/phpunit-demo",
+    "description": "phpunit demo",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Demo\\App\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Manish Choudhary"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require-dev": {
+        "phpunit/phpunit": "12.5.x-dev"
+    }
+}
