@@ -9,8 +9,9 @@ This guide walks you through the project from an empty directory to a green test
 3. [Docker setup](#1-docker-setup)
 4. [Composer: init, autoload & install](#2-composer-init-autoload--install)
 5. [PHPUnit: install & configure](#3-phpunit-install--configure)
-6. [Running the tests](#4-running-the-tests)
-7. [Troubleshooting](#troubleshooting)
+6. [phpunit.xml explained](#phpunitxml-explained)
+7. [Running the tests](#4-running-the-tests)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -218,19 +219,11 @@ PHPUnit reads its configuration from `phpunit.xml` in the project root:
 </phpunit>
 ```
 
-What the important options do:
-
-| Option | Purpose |
-| --- | --- |
-| `bootstrap="vendor/autoload.php"` | Loads Composer's autoloader before any test runs. |
-| `<testsuites>` | Discovers every `*Test.php` file under `tests/`. |
-| `<source>` | Defines which code counts for coverage (the `src/` directory). |
-| `requireCoverageMetadata="true"` | Every test **must** declare what it covers, or it's flagged **risky**. |
-| `failOnRisky` / `failOnWarning` / `failOnPhpunitDeprecation` | Strict mode — the suite fails on risky tests, warnings, or deprecations. |
-
 At a glance, the configuration breaks down into three concerns — the root-level **configuration options**, the **test location**, and the **source location** used for coverage:
 
 ![Annotated phpunit.xml showing configuration options, test location, and source location](docs/images/phpunit-xml-annotated.png)
+
+A full attribute-by-attribute walkthrough is in [phpunit.xml explained](#phpunitxml-explained) below.
 
 ### Declaring coverage metadata (PHPUnit 10+/12)
 
@@ -253,6 +246,165 @@ class MathHelperTest extends TestCase
     }
 }
 ```
+
+---
+
+## phpunit.xml explained
+
+This is a **strict PHPUnit 12** config — the kind you want in a real codebase so flaky, noisy, or under-documented tests fail the build instead of sliding through.
+
+### Root `<phpunit>` attributes
+
+#### Schema / XML plumbing
+
+| Attribute | Value | What it does |
+| --- | --- | --- |
+| `xmlns:xsi` | W3C schema-instance URI | Declares the XML Schema Instance namespace so editors/IDEs can validate the file. |
+| `xsi:noNamespaceSchemaLocation` | `vendor/phpunit/phpunit/phpunit.xsd` | Points at PHPUnit’s XSD. Autocomplete and validation in the IDE come from this. |
+
+These don’t change runtime behavior; they keep the config valid and editable.
+
+#### `bootstrap="vendor/autoload.php"`
+
+Runs **before any test**. Composer’s autoloader loads so `Demo\App\...` classes resolve without manual `require`.
+
+Without this, every test that touches `src/` would fatal on “class not found.”
+
+#### `cacheDirectory=".phpunit.cache"`
+
+Where PHPUnit stores result/metadata cache (test results, static analysis cache for ordering, etc.).
+
+- Speeds re-runs
+- Safe to gitignore
+- Delete it if ordering/caching looks stale
+
+#### `executionOrder="depends,defects"`
+
+Controls **run order**:
+
+1. **`depends`** — honor `@depends` / `#[Depends]` so dependents run after their prerequisites
+2. **`defects`** — previously failing/risky tests run first on the next run (fail-fast feedback)
+
+Other common values: `default`, `random`, `reverse`, `duration`.  
+`depends,defects` is a solid CI default: correctness of dependencies + “fix what broke last time first.”
+
+#### Coverage metadata (strict mode)
+
+**`requireCoverageMetadata="true"`**
+
+Every test must declare coverage intent via attributes/annotations, e.g.:
+
+- `#[CoversClass(...)]` / `@covers`
+- `#[DoesNotCover]` / `@coversNothing`
+
+If a test has none → **risky** (and with the other flags below, that can fail the suite).
+
+**`beStrictAboutCoverageMetadata="true"`**
+
+Goes further: coverage metadata must be **accurate**. Claiming `@covers Foo` while exercising `Bar` (or missing real coverage targets) is treated as a problem.
+
+Together these force intentional coverage documentation — useful for demos and for teams that care about “what this test is supposed to prove.”
+
+#### `beStrictAboutOutputDuringTests="true"`
+
+Any unexpected `echo`, `print`, `var_dump`, or stray output during a test → **risky**.
+
+Keeps the suite clean and catches accidental debug leftovers. Intentional output should go through PHPUnit’s output expectations/APIs, not raw prints.
+
+#### Deprecation / failure policy
+
+**`displayDetailsOnPhpunitDeprecations="true"`**
+
+When PHPUnit itself emits deprecations (API you’re using that will change/remove), print the **details**, not just a count.
+
+**`failOnPhpunitDeprecation="true"`**
+
+Those PHPUnit deprecations **fail the run**. On `12.5.x-dev` this is aggressive but good: you won’t silently accumulate dead APIs.
+
+**`failOnRisky="true"`**
+
+Risky tests fail the suite. Risky usually means: no assertions, unexpected output, incomplete coverage metadata, etc. — depending on other strict flags.
+
+**`failOnWarning="true"`**
+
+PHPUnit warnings fail the suite (not just PHP `E_WARNING`). Treat warnings as errors in CI.
+
+**Net effect of this block:** green build = clean, intentional, non-noisy tests.
+
+### `<testsuites>`
+
+```xml
+<testsuites>
+    <testsuite name="default">
+        <directory>tests</directory>
+    </testsuite>
+</testsuites>
+```
+
+| Piece | Meaning |
+| --- | --- |
+| `<testsuites>` | Container for one or more named suites |
+| `name="default"` | Suite label (CLI: `--testsuite default`) |
+| `<directory>tests</directory>` | Recursively discover `*Test.php` under `tests/` |
+
+You can add more suites later (`unit`, `integration`) and run them separately.
+
+### `<source>` (code under analysis)
+
+```xml
+<source ignoreIndirectDeprecations="true" restrictNotices="true" restrictWarnings="true">
+    <include>
+        <directory>src</directory>
+    </include>
+</source>
+```
+
+In PHPUnit 10+, `<source>` replaced the old `<coverage><include>` idea for “what is *your* code.”
+
+#### Why it matters
+
+- **Code coverage** is measured against this include set
+- **Deprecation/notice/warning filtering** can be scoped to *your* code vs vendor
+
+#### Attributes on `<source>`
+
+| Attribute | Effect |
+| --- | --- |
+| `ignoreIndirectDeprecations="true"` | Deprecations triggered **indirectly** (e.g. your code calls vendor, vendor triggers a deprecation) are ignored. You only care about deprecations your code causes directly. |
+| `restrictNotices="true"` | PHP notices are only considered (for PHPUnit’s reporting/failure behavior) when they originate in included source (`src/`), not deep in vendor. |
+| `restrictWarnings="true"` | Same idea for warnings: focus on `src/`, not third-party noise. |
+
+#### `<include><directory>src</directory>`
+
+Only `src/` is “first-party” code for coverage and restricted reporting. `vendor/` and `tests/` are outside that boundary unless you add them.
+
+### Mental model
+
+```mermaid
+flowchart TD
+    A[phpunit CLI] --> B[bootstrap: Composer autoload]
+    B --> C[Discover tests/ suite]
+    C --> D[Order: depends then defects]
+    D --> E[Run each test]
+    E --> F{Strict checks}
+    F -->|no coverage metadata| G[Risky → fail]
+    F -->|unexpected output| G
+    F -->|PHPUnit deprecation| H[Fail]
+    F -->|warning / risky| H
+    E --> I[Coverage / source scope = src/]
+```
+
+### Practical takeaway
+
+This config teaches **discipline**, not just “run tests”:
+
+1. Autoload via Composer
+2. Cache for speed
+3. Smart execution order
+4. Every test must declare coverage intent — and correctly
+5. No stray output
+6. Deprecations, risky tests, and warnings fail CI
+7. Analysis/coverage scoped to `src/`, with vendor noise filtered
 
 ---
 
