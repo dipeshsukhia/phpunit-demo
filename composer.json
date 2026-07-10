@@ -16,5 +16,17 @@
     "minimum-stability": "dev",
     "require-dev": {
         "phpunit/phpunit": "12.5.x-dev"
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "test:campus-hires": "@php vendor/bin/phpunit --group=entrata/CampusHires",
+        "test:coverage": "@php vendor/bin/phpunit --coverage-text",
+        "test:coverage-html": "@php vendor/bin/phpunit --coverage-html coverage/"
+    },
+    "scripts-descriptions": {
+        "test": "Run the PHPUnit test suite (pass flags after --)",
+        "test:campus-hires": "Run only tests in the entrata/CampusHires group",
+        "test:coverage": "Run tests and print a text coverage report",
+        "test:coverage-html": "Run tests and write an HTML coverage report to coverage/"
     }
 }

@@ -11,7 +11,9 @@ This guide walks you through the project from an empty directory to a green test
 5. [PHPUnit: install & configure](#3-phpunit-install--configure)
 6. [phpunit.xml explained](#phpunitxml-explained)
 7. [Running the tests](#4-running-the-tests)
-8. [Troubleshooting](#troubleshooting)
+8. [UT groups](#ut-groups)
+9. [Composer test scripts](#composer-test-scripts)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -139,6 +141,18 @@ It prompts for the package name, description, license, and dependencies, then wr
     "minimum-stability": "dev",
     "require-dev": {
         "phpunit/phpunit": "12.5.x-dev"
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "test:campus-hires": "@php vendor/bin/phpunit --group=entrata/CampusHires",
+        "test:coverage": "@php vendor/bin/phpunit --coverage-text",
+        "test:coverage-html": "@php vendor/bin/phpunit --coverage-html coverage/"
+    },
+    "scripts-descriptions": {
+        "test": "Run the PHPUnit test suite (pass flags after --)",
+        "test:campus-hires": "Run only tests in the entrata/CampusHires group",
+        "test:coverage": "Run tests and print a text coverage report",
+        "test:coverage-html": "Run tests and write an HTML coverage report to coverage/"
     }
 }
 ```
@@ -147,6 +161,7 @@ Key sections:
 
 - **`autoload.psr-4`** — maps the `Demo\App\` namespace prefix to the `src/` directory. This is why `new Demo\App\MathHelper()` resolves to `src/MathHelper.php` with no manual `require`.
 - **`require-dev`** — development-only dependencies (PHPUnit), excluded from production installs run with `--no-dev`.
+- **`scripts`** — Composer aliases such as `composer test`. See [Composer test scripts](#composer-test-scripts).
 
 ### Installing dependencies
 
@@ -233,9 +248,11 @@ Because `requireCoverageMetadata` is enabled, each test class must declare its c
 <?php
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Demo\App\MathHelper;
 
+#[Group('entrata/CampusHires')]
 #[CoversClass(MathHelper::class)]
 class MathHelperTest extends TestCase
 {
@@ -246,6 +263,8 @@ class MathHelperTest extends TestCase
     }
 }
 ```
+
+See [UT groups](#ut-groups) for how to run only this group.
 
 ---
 
@@ -410,10 +429,19 @@ This config teaches **discipline**, not just “run tests”:
 
 ## 4. Running the tests
 
-Run the full suite:
+You can run PHPUnit two ways:
+
+1. **`composer test`** (preferred) — uses the Composer script defined in `composer.json`
+2. **`./vendor/bin/phpunit`** — calls the binary directly
+
+Both read `phpunit.xml` by default. Commands below assume you are **inside the container** (`docker exec -it phpunit_demo bash`). From the host, prefix with `docker compose exec php`.
+
+### Full suite
 
 ```bash
-docker compose exec php ./vendor/bin/phpunit
+composer test
+# equivalent:
+./vendor/bin/phpunit
 ```
 
 Expected output:
@@ -431,41 +459,79 @@ Time: 00:00.002, Memory: 14.00 MB
 OK (7 tests, 7 assertions)
 ```
 
-Other common invocations:
+### Passing flags through Composer (`--`)
+
+Anything after `--` is forwarded to PHPUnit:
 
 ```bash
-# Run a single test file
-docker compose exec php ./vendor/bin/phpunit tests/MathHelperTest.php
-
-# Run one test method by name
-docker compose exec php ./vendor/bin/phpunit --filter testDivideByZero
-
-# Verbose test names (testdox)
-docker compose exec php ./vendor/bin/phpunit --testdox
-
-# Generate a code-coverage report (pcov is pre-installed in the image)
-docker compose exec php ./vendor/bin/phpunit --coverage-text
-docker compose exec php ./vendor/bin/phpunit --coverage-html coverage/
+composer test -- --testdox
+composer test -- --debug
+composer test -- tests/MathHelperTest.php
 ```
+
+Without `--`, Composer treats those tokens as its own arguments and will fail or ignore them.
+
+### Common invocations (from a real session)
+
+```bash
+# Readable test names (testdox)
+composer test -- --testdox
+
+# Verbose event stream (debug)
+composer test -- --debug
+
+# Single test file (relative path — do not use /tests/...)
+composer test -- tests/MathHelperTest.php
+
+# Explicit config + suffix filter
+composer test -- -c phpunit.xml --test-suffix=Test.php tests/MathHelperTest.php
+
+# JUnit XML log (useful for CI)
+composer test -- --log-junit junit.xml --no-coverage
+
+# Run only the entrata/CampusHires UT group (MathHelperTest)
+composer test -- --group=entrata/CampusHires
+# or:
+composer test:campus-hires
+
+# Text coverage report (pcov is pre-installed in the image)
+composer test -- --coverage-text
+# or:
+composer test:coverage
+
+# HTML coverage report → open coverage/index.html
+composer test -- --coverage-html coverage/
+# or:
+composer test:coverage-html
+```
+
+### Common mistakes
+
+| Wrong | Why it fails | Correct |
+| --- | --- | --- |
+| `composer test -- -c phpunit.xml.dist ...` | This repo has `phpunit.xml`, not `phpunit.xml.dist` | `-c phpunit.xml` or omit `-c` |
+| `composer test -- /tests/MathHelperTest.php` | Absolute path from filesystem root | `tests/MathHelperTest.php` |
+| `composer test --testdox` (no `--`) | Composer does not forward the flag | `composer test -- --testdox` |
 
 ### Command-line options reference
 
-The most useful PHPUnit CLI flags. Prefix each with `docker compose exec php ./vendor/bin/phpunit` to run it in this project.
+The most useful PHPUnit CLI flags. Use them after `composer test --` or with `./vendor/bin/phpunit`.
 
 | Option | Description | Example |
 | --- | --- | --- |
-| `--filter` | Runs tests that match the provided filter pattern. | `phpunit --filter testMethodName` |
-| `--group` | Runs tests from the specified group(s). | `phpunit --group groupName` |
-| `--testdox` | Prints the test names and their statuses in a readable format. | `phpunit --testdox` |
-| `--coverage-text` | Generates a text-based code coverage report. | `phpunit --coverage-text` |
-| `--coverage-html` | Generates an HTML code coverage report in the specified directory. | `phpunit --coverage-html coverage/` |
-| `--configuration` (`-c`) | Specifies a PHPUnit XML configuration file to use. | `phpunit -c phpunit.xml` |
-| `--log-junit` | Logs test execution in JUnit XML format. | `phpunit --log-junit log.xml` |
+| `--filter` | Runs tests that match the provided filter pattern. | `composer test -- --filter testDivideByZero` |
+| `--group` | Runs tests from the specified group(s). | `composer test -- --group=entrata/CampusHires` |
+| `--testdox` | Prints the test names and their statuses in a readable format. | `composer test -- --testdox` |
+| `--coverage-text` | Generates a text-based code coverage report. | `composer test -- --coverage-text` |
+| `--coverage-html` | Generates an HTML code coverage report in the specified directory. | `composer test -- --coverage-html coverage/` |
+| `--configuration` (`-c`) | Specifies a PHPUnit XML configuration file to use. | `composer test -- -c phpunit.xml` |
+| `--log-junit` | Logs test execution in JUnit XML format. | `composer test -- --log-junit junit.xml` |
 | `--bootstrap` | Specifies a PHP script to include before running tests. | `phpunit --bootstrap bootstrap.php` |
-| `--colors` | Adds color to the output for better readability. | `phpunit --colors` |
-| `--debug` | Displays debugging information during test execution. | `phpunit --debug` |
-| `--stop-on-failure` | Stops the test execution upon the first failure. | `phpunit --stop-on-failure` |
-| `--test-suffix` | Only executes test files with the specified suffix. | `phpunit --test-suffix=Test.php` |
+| `--colors` | Adds color to the output for better readability. | `composer test -- --colors` |
+| `--debug` | Displays debugging information during test execution. | `composer test -- --debug` |
+| `--stop-on-failure` | Stops the test execution upon the first failure. | `composer test -- --stop-on-failure` |
+| `--test-suffix` | Only executes test files with the specified suffix. | `composer test -- --test-suffix=Test.php` |
+| `--no-coverage` | Disables code coverage collection for this run. | `composer test -- --no-coverage` |
 
 ![PHPUnit command-line options reference table](docs/images/phpunit-cli-options.png)
 
@@ -473,10 +539,123 @@ The most useful PHPUnit CLI flags. Prefix each with `docker compose exec php ./v
 
 ---
 
+## UT groups
+
+PHPUnit **groups** let you tag tests and run a subset without pointing at a file path. This demo tags `MathHelperTest` for Entrata Campus Hires:
+
+```php
+use PHPUnit\Framework\Attributes\Group;
+
+#[Group('entrata/CampusHires')]
+#[CoversClass(MathHelper::class)]
+class MathHelperTest extends TestCase
+{
+    // ...
+}
+```
+
+| Piece | Meaning |
+| --- | --- |
+| `#[Group('entrata/CampusHires')]` | Class-level tag — every method in the class belongs to the group |
+| `--group=entrata/CampusHires` | CLI filter — only those tests run |
+| `composer test:campus-hires` | Composer alias for the same filter |
+
+You can also put `#[Group(...)]` on a single method if only some tests should be in the group.
+
+### Commands for `entrata/CampusHires`
+
+```bash
+# Run the group (4 MathHelper tests)
+composer test -- --group=entrata/CampusHires
+composer test:campus-hires
+
+# Same group, readable names
+composer test -- --group=entrata/CampusHires --testdox
+composer test:campus-hires -- --testdox
+
+# Group + debug event stream
+composer test -- --group=entrata/CampusHires --debug
+
+# Group + JUnit log
+composer test -- --group=entrata/CampusHires --log-junit junit.xml --no-coverage
+
+# Group + text coverage (only exercises MathHelper under this filter)
+composer test -- --group=entrata/CampusHires --coverage-text
+
+# Exclude the group (run everything else — StringUtilitiesTest)
+composer test -- --exclude-group=entrata/CampusHires
+```
+
+Expected testdox output for the group:
+
+```text
+Math Helper
+ ✔ Multiply
+ ✔ Divide
+ ✔ Divide by zero
+ ✔ Subtract
+
+OK (4 tests, 4 assertions)
+```
+
+`StringUtilitiesTest` has no group, so it is skipped when `--group=entrata/CampusHires` is used.
+
+---
+
+## Composer test scripts
+
+`composer test` is **not** a built-in Composer command. It only works because `composer.json` defines a `scripts` entry. Without that block you get:
+
+```text
+Command "test" is not defined.
+```
+
+### Current setup
+
+```json
+"scripts": {
+    "test": "@php vendor/bin/phpunit",
+    "test:campus-hires": "@php vendor/bin/phpunit --group=entrata/CampusHires",
+    "test:coverage": "@php vendor/bin/phpunit --coverage-text",
+    "test:coverage-html": "@php vendor/bin/phpunit --coverage-html coverage/"
+},
+"scripts-descriptions": {
+    "test": "Run the PHPUnit test suite (pass flags after --)",
+    "test:campus-hires": "Run only tests in the entrata/CampusHires group",
+    "test:coverage": "Run tests and print a text coverage report",
+    "test:coverage-html": "Run tests and write an HTML coverage report to coverage/"
+}
+```
+
+| Script | What it does | Why this form |
+| --- | --- | --- |
+| `test` | Runs the full suite via PHPUnit | `@php vendor/bin/phpunit` uses the same PHP binary as Composer and an explicit path (no reliance on `PATH`) |
+| `test:campus-hires` | Runs only `#[Group('entrata/CampusHires')]` tests | Shortcut for Campus Hires UTs without remembering `--group` |
+| `test:coverage` | Suite + text coverage | Convenience alias for the most common coverage check |
+| `test:coverage-html` | Suite + HTML report under `coverage/` | Same idea for browsing line-level coverage |
+| `scripts-descriptions` | Shown by `composer run-script --list` | Documents intent for teammates |
+
+### Design notes
+
+1. **Keep `test` flag-free** — put options after `--` so one script covers testdox, groups, filters, JUnit, etc.
+2. **Prefer `@php vendor/bin/phpunit` over bare `phpunit`** — clearer and avoids “command not found” if `vendor/bin` is not on `PATH` outside Composer’s script runner.
+3. **Do not hardcode `-c phpunit.xml.dist`** — this project ships `phpunit.xml` only.
+4. **Generated artifacts** — `coverage/` and `junit.xml` are gitignored; regenerate them when needed.
+
+List available scripts:
+
+```bash
+composer run-script --list
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `Command "test" is not defined.` | No `scripts.test` entry in `composer.json`. | Add the `scripts` block shown above, or run `./vendor/bin/phpunit` directly. |
+| `Could not read XML from file "phpunit.xml.dist"` | Wrong `-c` path; this repo uses `phpunit.xml`. | Use `-c phpunit.xml` or omit `-c`. |
 | `Class "Demo\App\..." not found` | Namespace doesn't match the PSR-4 map, or autoloader is stale. | Ensure the class namespace matches `composer.json`, then run `composer dump-autoload`. |
 | `This test does not define a code coverage target` (risky) | Missing coverage metadata under strict mode. | Add `#[CoversClass(...)]` to the test class (the old `@covers` docblock is ignored in PHPUnit 12). |
 | `phpunit: not found` | Dependencies not installed in the container. | Run `docker compose exec php composer install`. |
